@@ -244,8 +244,8 @@ pub fn set_options(
 
     // Resolve side-by-side: parse the optional min-width value and apply terminal width check.
     let (sbs_enabled, sbs_min_width) = parse_side_by_side(&opt.side_by_side);
-    opt.computed.side_by_side = sbs_enabled
-        && (sbs_min_width == 0 || opt.computed.available_terminal_width >= sbs_min_width);
+    opt.computed.side_by_side =
+        sbs_enabled && (sbs_min_width == 0 || side_by_side_output_width(opt) >= sbs_min_width);
 
     // --color-only is used for interactive.diffFilter (git add -p). side-by-side, and
     // **-decoration-style cannot be used there (does not emit lines in 1-1 correspondence with raw git output).
@@ -541,6 +541,16 @@ fn gather_builtin_features_recursively(
 
 fn split_feature_string(features: &str) -> impl Iterator<Item = &str> {
     features.split_whitespace().rev()
+}
+
+/// The width that side-by-side panels are painted at, which the side-by-side minimum width
+/// applies to: --width if set, otherwise the terminal width. When delta's output is captured, not
+/// written to a terminal, --width is the only way to tell delta the width.
+fn side_by_side_output_width(opt: &cli::Opt) -> usize {
+    match opt.computed.decorations_width {
+        cli::Width::Fixed(width) => width,
+        cli::Width::Variable => opt.computed.available_terminal_width,
+    }
 }
 
 /// Returns true if the side-by-side option value indicates side-by-side should be enabled.
@@ -1081,5 +1091,24 @@ pub mod tests {
         // min-width of 1 is smaller than TERMINAL_WIDTH_IN_TESTS (43), so sbs should be enabled.
         let opt = integration_test_utils::make_options_from_args(&["--side-by-side=1"]);
         assert!(opt.computed.side_by_side);
+    }
+
+    #[test]
+    fn test_side_by_side_min_width_applies_to_width_option() {
+        // With --width, the minimum applies to that width, whatever the terminal width is.
+        let opt = integration_test_utils::make_options_from_args(&[
+            "--side-by-side=99999",
+            "--width=100000",
+        ]);
+        assert!(opt.computed.side_by_side);
+        let opt =
+            integration_test_utils::make_options_from_args(&["--side-by-side=2", "--width=1"]);
+        assert!(!opt.computed.side_by_side);
+        // --width=variable paints at the terminal width.
+        let opt = integration_test_utils::make_options_from_args(&[
+            "--side-by-side=99999",
+            "--width=variable",
+        ]);
+        assert!(!opt.computed.side_by_side);
     }
 }
